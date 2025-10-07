@@ -1,0 +1,522 @@
+{
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "2bd12f5e-b782-4104-993a-93b6b5d15925",
+      "name": "No Alert",
+      "type": "n8n-nodes-base.noOp",
+      "position": [
+        1440,
+        1088
+      ],
+      "typeVersion": 1
+    },
+    {
+      "parameters": {
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "value": "={{ $json.slackChannel }}",
+          "mode": "name"
+        },
+        "text": "={{ $json.alertMessage }}",
+        "otherOptions": {}
+      },
+      "id": "ef76b869-788f-4575-a2eb-4a83a8cdd8bf",
+      "name": "Send Alert",
+      "type": "n8n-nodes-base.slack",
+      "position": [
+        1664,
+        880
+      ],
+      "typeVersion": 2.3,
+      "webhookId": "8b0d921f-daff-45d0-a40f-87bd277bbd3d",
+      "notes": "🔧 CONFIGURE: Add Slack credentials"
+    },
+    {
+      "parameters": {
+        "jsCode": "// FORMAT ALERT\nconst item = $input.item.json;\nconst emoji = { critical: '🚨', high: '⚠️', medium: '🔍', low: '📝' };\n\nlet msg = `${emoji[item.threatLevel]} **${item.threatLevel.toUpperCase()} THREAT**\\n🦋 **Platform:** BLUESKY\\n\\n`;\nmsg += `**Account:** @${item.author}\\n**Followers:** ${item.authorFollowers} | Age: ${item.accountAge}d\\n`;\nmsg += `**Engagement:** ${item.retweetCount + item.favoriteCount}\\n**Threat Score:** ${item.threatScore}/100\\n\\n`;\n\nif (item.redFlags.length > 0) {\n  msg += `**🚩 Red Flags:**\\n${item.redFlags.map(f => `• ${f}`).join('\\n')}\\n\\n`;\n}\n\nif (item.volumeData.campaignDetected) {\n  msg += `**🎯 CAMPAIGN: ${item.volumeData.campaignReason}**\\n\\n`;\n}\n\nmsg += `**Content:**\\n> ${item.fullText.substring(0, 280)}\\n\\n**Link:** ${item.url}\\n\\n`;\nmsg += `_Activity: ${item.volumeData.hourlyCount} posts, ${item.volumeData.hourlySuspicious} suspicious_`;\n\nreturn {\n  json: {\n    ...item,\n    alertMessage: msg,\n    slackChannel: item.threatLevel === 'critical' ? 'alerts-critical' : 'alerts-general'\n  }\n};"
+      },
+      "id": "2f94cec7-55dc-41b7-bc5c-973c00bd300f",
+      "name": "Format Alert",
+      "type": "n8n-nodes-base.code",
+      "position": [
+        1440,
+        880
+      ],
+      "typeVersion": 2
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{ $json.shouldAlert }}",
+              "value2": true
+            }
+          ]
+        }
+      },
+      "id": "12e0a43c-4eda-4323-880f-0d722102c957",
+      "name": "Should Alert?",
+      "type": "n8n-nodes-base.if",
+      "position": [
+        1216,
+        992
+      ],
+      "typeVersion": 1
+    },
+    {
+      "parameters": {
+        "jsCode": "// VOLUME PATTERN & CAMPAIGN DETECTION\nconst staticData = $getWorkflowStaticData('global');\nconst now = new Date();\nconst hourKey = now.getHours();\n\nif (!staticData.hourlyData) staticData.hourlyData = {};\nif (!staticData.hourlyData[hourKey]) {\n  staticData.hourlyData[hourKey] = { count: 0, suspicious: 0, accounts: [] };\n}\n\nconst results = [];\nconst currentHour = staticData.hourlyData[hourKey];\nconst allItems = $input.all();\n\nallItems.forEach(item => {\n  currentHour.count++;\n  if (['high', 'critical'].includes(item.json.threatLevel)) currentHour.suspicious++;\n  \n  const accountKey = `bluesky:${item.json.author}`;\n  if (!currentHour.accounts.includes(accountKey)) currentHour.accounts.push(accountKey);\n});\n\nlet campaignDetected = false;\nlet campaignReason = '';\n\nif (currentHour.suspicious >= 5) {\n  campaignDetected = true;\n  campaignReason = `${currentHour.suspicious} suspicious posts this hour`;\n}\n\nconst previousHour = staticData.hourlyData[(hourKey - 1 + 24) % 24];\nif (previousHour && currentHour.count > previousHour.count * 3) {\n  campaignDetected = true;\n  campaignReason = `3x spike vs previous hour (${currentHour.count} vs ${previousHour.count})`;\n}\n\nconst newAccounts = allItems.filter(i => i.json.accountAge < 30).length;\nif (newAccounts >= 3) {\n  campaignDetected = true;\n  campaignReason = `${newAccounts} new accounts posting`;\n}\n\nallItems.forEach(item => {\n  results.push({\n    json: {\n      ...item.json,\n      volumeData: {\n        hourlyCount: currentHour.count,\n        hourlySuspicious: currentHour.suspicious,\n        uniqueAccounts: currentHour.accounts.length,\n        campaignDetected,\n        campaignReason\n      },\n      shouldAlert: item.json.threatLevel !== 'low' || campaignDetected\n    }\n  });\n});\n\nreturn results;"
+      },
+      "id": "dd82eecb-cadb-4fe5-9db8-7e3ae9093cc4",
+      "name": "Check Volume Pattern",
+      "type": "n8n-nodes-base.code",
+      "position": [
+        1008,
+        1008
+      ],
+      "typeVersion": 2
+    },
+    {
+      "parameters": {
+        "jsCode": "// CALCULATE TOTAL THREAT\nconst results = [];\n\nfor (const item of $input.all()) {\n  const data = item.json;\n  const checks = data.checks || {};\n  \n  let totalScore = 0;\n  const allFlags = [];\n  \n  Object.values(checks).forEach(check => {\n    if (check.score) totalScore += check.score;\n    if (check.flags) allFlags.push(...check.flags);\n  });\n  \n  let threatLevel = 'low';\n  let threatType = 'normal';\n  \n  if (totalScore >= 70) {\n    threatLevel = 'critical';\n    threatType = 'likely_campaign';\n  } else if (totalScore >= 50) {\n    threatLevel = 'high';\n    threatType = 'suspicious';\n  } else if (totalScore >= 30) {\n    threatLevel = 'medium';\n    threatType = 'monitor';\n  }\n  \n  results.push({\n    json: {\n      ...data,\n      threatScore: totalScore,\n      redFlags: allFlags,\n      threatLevel,\n      threatType,\n      timestamp: new Date().toISOString()\n    }\n  });\n}\n\nreturn results;"
+      },
+      "id": "79c10372-a435-4bb2-9543-b2d613d56ec8",
+      "name": "Calculate Total Threat",
+      "type": "n8n-nodes-base.code",
+      "position": [
+        784,
+        1008
+      ],
+      "typeVersion": 2
+    },
+    {
+      "parameters": {
+        "jsCode": "// BOT DETECTION (+95 points max)\nconst results = [];\n\nfor (const item of $input.all()) {\n  const data = item.json;\n  const accountAge = data.accountAge || 0;\n  let score = 0;\n  const flags = [];\n  \n  if (accountAge < 30 && data.authorTweets > 500) {\n    score += 30;\n    flags.push(`Bot: New account (${accountAge}d) with ${data.authorTweets} posts`);\n  }\n  \n  if (/[0-9]{6,}$/.test(data.author)) {\n    score += 20;\n    flags.push('Bot: Username ends with 6+ numbers');\n  }\n  \n  const ratio = data.authorFollowers / (data.authorFriends || 1);\n  if (ratio < 0.1 && data.authorFollowers < 50) {\n    score += 20;\n    flags.push(`Bot: Low follower ratio ${ratio.toFixed(2)}`);\n  }\n  \n  const engagement = data.retweetCount + data.favoriteCount;\n  if (data.authorFollowers < 100 && engagement > 500) {\n    score += 25;\n    flags.push('Bot: Suspicious engagement');\n  }\n  \n  results.push({\n    json: {\n      ...data,\n      checks: {\n        ...data.checks,\n        bot: { score, flags, accountAge }\n      }\n    }\n  });\n}\n\nreturn results;"
+      },
+      "id": "2a13d4e2-e0b2-4f8c-85a5-5fce5420d574",
+      "name": "Check Bot Signals",
+      "type": "n8n-nodes-base.code",
+      "position": [
+        1696,
+        528
+      ],
+      "typeVersion": 2
+    },
+    {
+      "parameters": {
+        "jsCode": "// BEHAVIORAL TACTICS (+25 points max)\nconst results = [];\n\nfor (const item of $input.all()) {\n  const data = item.json;\n  let score = 0;\n  const flags = [];\n  \n  const hashtags = (data.text.match(/#/g) || []).length;\n  if (hashtags >= 5) {\n    score += 15;\n    flags.push(`Hashtag stuffing: ${hashtags} tags`);\n  }\n  \n  const capsWords = data.fullText.match(/\\b[A-Z]{4,}\\b/g) || [];\n  if (capsWords.length >= 3) {\n    score += 10;\n    flags.push(`Excessive CAPS: ${capsWords.length} words`);\n  }\n  \n  results.push({\n    json: {\n      ...data,\n      checks: {\n        ...data.checks,\n        behavioral: { score, flags }\n      }\n    }\n  });\n}\n\nreturn results;"
+      },
+      "id": "0b6c8aa5-a052-4adc-95dd-df628c0e975c",
+      "name": "Check Behavioral",
+      "type": "n8n-nodes-base.code",
+      "position": [
+        1472,
+        528
+      ],
+      "typeVersion": 2
+    },
+    {
+      "parameters": {
+        "jsCode": "// CALL-TO-ACTION (+20 points)\nconst ctaPhrases = ['share this','retweet','rt this','boost this','spread the word','everyone needs','must see','wake up','open your eyes','dont let them','before they delete','they dont want you','tag someone','share if you agree','pass it on','viral','make this go viral'];\n\nconst results = [];\n\nfor (const item of $input.all()) {\n  const data = item.json;\n  let score = 0;\n  const flags = [];\n  let count = 0;\n  const found = [];\n  \n  ctaPhrases.forEach(w => {\n    if (data.text.includes(w)) {\n      count++;\n      found.push(w);\n    }\n  });\n  \n  if (count >= 1) {\n    score += 20;\n    flags.push(`Call-to-action: \"${found[0]}\"`);\n  }\n  \n  results.push({\n    json: {\n      ...data,\n      checks: {\n        ...data.checks,\n        cta: { score, flags }\n      }\n    }\n  });\n}\n\nreturn results;"
+      },
+      "id": "dda8c956-5177-4286-8fc3-ceb916a43aaa",
+      "name": "Check Call-to-Action",
+      "type": "n8n-nodes-base.code",
+      "position": [
+        1248,
+        528
+      ],
+      "typeVersion": 2
+    },
+    {
+      "parameters": {
+        "jsCode": "// HEDGE WORDS (+15 points)\nconst hedgeWords = ['allegedly','reportedly','supposedly','rumor','rumors','sources say','sources claim','heard that','they say','according to','claims that','suggests that','could be','might be','may have','possibly','probably','apparently','seemingly'];\n\nconst results = [];\n\nfor (const item of $input.all()) {\n  const data = item.json;\n  let score = 0;\n  const flags = [];\n  let count = 0;\n  const found = [];\n  \n  hedgeWords.forEach(w => {\n    if (data.text.includes(w)) {\n      count++;\n      found.push(w);\n    }\n  });\n  \n  if (count >= 1) {\n    score += 15;\n    flags.push(`Unverified language: \"${found[0]}\"`);\n  }\n  \n  results.push({\n    json: {\n      ...data,\n      checks: {\n        ...data.checks,\n        hedges: { score, flags }\n      }\n    }\n  });\n}\n\nreturn results;"
+      },
+      "id": "d247bac4-ba0c-43d7-a531-2cbced48ae8c",
+      "name": "Check Hedge Words",
+      "type": "n8n-nodes-base.code",
+      "position": [
+        1024,
+        528
+      ],
+      "typeVersion": 2
+    },
+    {
+      "parameters": {
+        "jsCode": "// EMOTIONAL MANIPULATION (+25 points)\nconst emotionalWords = ['shocking','terrifying','alarming','dangerous','threat','crisis','panic','scared','afraid','horror','terror','frightening','outrageous','disgusting','furious','enraged','angry','hate','rage','hostile','violent','attack','destroy','scandal','corrupt','evil','traitor','criminal','betrayal','enemy','fraud','scam','lie','liar','fake','breaking','urgent','emergency','alert','warning','exposed','leaked','revealed','bombshell','explosive'];\n\nconst results = [];\n\nfor (const item of $input.all()) {\n  const data = item.json;\n  let score = 0;\n  const flags = [];\n  let count = 0;\n  const found = [];\n  \n  emotionalWords.forEach(w => {\n    if (data.text.includes(w)) {\n      count++;\n      found.push(w);\n    }\n  });\n  \n  if (count >= 2) {\n    score += 25;\n    flags.push(`Emotional manipulation: ${count} triggers (${found.slice(0,3).join(', ')})`);\n  }\n  \n  results.push({\n    json: {\n      ...data,\n      checks: {\n        ...data.checks,\n        emotional: { score, flags, count }\n      }\n    }\n  });\n}\n\nreturn results;"
+      },
+      "id": "2c53ee6c-e591-4d36-b760-c85b65193c83",
+      "name": "Check Emotional Words",
+      "type": "n8n-nodes-base.code",
+      "position": [
+        800,
+        528
+      ],
+      "typeVersion": 2
+    },
+    {
+      "parameters": {
+        "jsCode": "// Normalize Bluesky data to common format\nconst results = [];\nconst data = $input.first().json;\n\nif (data.posts && Array.isArray(data.posts)) {\n  for (const post of data.posts) {\n    const author = post.author || {};\n    const record = post.record || {};\n    const text = (record.text || '').toLowerCase();\n    \n    const createdAt = new Date(author.createdAt || Date.now());\n    const accountAge = Math.floor((Date.now() - createdAt.getTime()) / (1000 * 60 * 60 * 24));\n    \n    results.push({\n      json: {\n        platform: 'bluesky',\n        id: post.uri,\n        text: text,\n        fullText: record.text || '',\n        author: author.handle || 'unknown',\n        authorFollowers: author.followersCount || 0,\n        authorFriends: author.followsCount || 0,\n        authorCreated: author.createdAt || new Date().toISOString(),\n        authorTweets: author.postsCount || 0,\n        retweetCount: post.repostCount || 0,\n        favoriteCount: post.likeCount || 0,\n        createdAt: post.indexedAt || new Date().toISOString(),\n        url: `https://bsky.app/profile/${author.handle}/post/${post.uri.split('/').pop()}`,\n        accountAge: accountAge,\n        threatScore: 0,\n        redFlags: [],\n        checks: {}\n      }\n    });\n  }\n}\n\nreturn results;"
+      },
+      "id": "13389c77-1704-4171-b54b-5eaac3962c84",
+      "name": "Normalize Data",
+      "type": "n8n-nodes-base.code",
+      "position": [
+        1584,
+        176
+      ],
+      "typeVersion": 2
+    },
+    {
+      "parameters": {
+        "url": "=https://bsky.social/xrpc/app.bsky.feed.searchPosts?q={{ $('Platform Config').item.json.searchTerm }}&limit=50",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $json.accessJwt }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "c812094f-ecb9-4bc8-a878-ef68fdfa6ddb",
+      "name": "Fetch Bluesky Posts",
+      "type": "n8n-nodes-base.httpRequest",
+      "position": [
+        1360,
+        176
+      ],
+      "typeVersion": 4.2,
+      "notes": "Authenticated search using token from previous node"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://bsky.social/xrpc/com.atproto.server.createSession",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"identifier\": \"{{ $env.BLUESKY_HANDLE }}\",\n  \"password\": \"{{ $env.BLUESKY_PASSWORD }}\"\n}",
+        "options": {}
+      },
+      "id": "fbb57fcc-a378-4649-becb-f1f6689cf242",
+      "name": "Authenticate Bluesky",
+      "type": "n8n-nodes-base.httpRequest",
+      "position": [
+        1136,
+        176
+      ],
+      "typeVersion": 4.2,
+      "notes": "🔧 METHOD 1: Uses environment variables\n🔧 METHOD 2: Edit JSON body directly with your credentials"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "search_term",
+              "name": "searchTerm",
+              "value": "Telia",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "7755f421-b939-4d72-a773-47f8508ee5ea",
+      "name": "Platform Config",
+      "type": "n8n-nodes-base.set",
+      "position": [
+        912,
+        176
+      ],
+      "typeVersion": 3.4,
+      "notes": "🔧 CONFIGURE: Change 'Telia' to your search term"
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 30
+            }
+          ]
+        }
+      },
+      "id": "94c0d8e5-1a5c-4515-8ae2-296ca364be7c",
+      "name": "Every 30 Minutes",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "position": [
+        688,
+        176
+      ],
+      "typeVersion": 1,
+      "notes": "Runs every 30 minutes. Adjust as needed."
+    },
+    {
+      "parameters": {
+        "content": "## 🚀 BLUESKY DISINFORMATION MONITOR\n\n### ⚠️ AUTHENTICATION SETUP\n\n**Choose ONE method:**\n\n### Method 1: Environment Variables (Recommended)\n**For self-hosted n8n or those with server access**\n\n1. Set environment variables:\n```bash\nexport BLUESKY_HANDLE=\"your-handle.bsky.social\"\nexport BLUESKY_PASSWORD=\"your-app-password\"\n```\n\n2. Restart n8n\n3. Workflow will automatically use these values\n4. Get app password: https://bsky.app/settings/app-passwords\n\n### Method 2: Direct Entry (Less safe, your choice)\n**For n8n Cloud or quick testing**\n\n1. Open \"Authenticate Bluesky\" node\n2. Edit the JSON body:\n```json\n{\n  \"identifier\": \"your-handle.bsky.social\",\n  \"password\": \"your-app-password\"\n}\n```\n3. ⚠️ **This method stores your authentication details for the Bluesky node in teh flow's .json file. Make certain to remove it if you ill share the flow with others!**\n\n---\n\n### Other Configuration\n\n**Search Term:**\n- Node: \"Platform Config\"\n- Replace `Telia` with your brand/term\n\n**Slack Alerts:**\n- Node: \"Send Alert\"\n- Add Slack credentials\n- Channels: #alerts-critical, #alerts-general\n\n---\n\n### How It Works\n1. ✅ Authenticates with Bluesky\n2. 🔍 Searches for your term\n3. 🧠 Analyzes for disinformation\n4. 🚨 Sends alerts for threats\n\n### Threat Levels\nCalibrate the threat level yourself, and change the business logic if you want other rules for when you want to be alerted. For now it is set to un-calibrated default values:\n- **0-29:** Low (no alert)\n- **30-49:** Medium (monitor)\n- **50-69:** High (alert)\n- **70+:** Critical (urgent)\n\n### Detection Methods\n✅ Emotional manipulation\n✅ Unverified claims\n✅ Viral amplification\n✅ Hashtag stuffing\n✅ Bot patterns\n✅ Campaign coordination",
+        "height": 1532,
+        "width": 540
+      },
+      "id": "0764189c-d04f-4fa7-93df-1abaf4867364",
+      "name": "Setup Instructions",
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        64,
+        80
+      ],
+      "typeVersion": 1
+    },
+    {
+      "parameters": {
+        "content": "## Gather data\n",
+        "height": 320,
+        "width": 1280,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        656,
+        80
+      ],
+      "typeVersion": 1,
+      "id": "f5b9f734-e6d5-42cf-99fa-6c07cf118718",
+      "name": "Sticky Note"
+    },
+    {
+      "parameters": {
+        "content": "## Check for indicators\n",
+        "height": 320,
+        "width": 1280,
+        "color": 2
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        656,
+        464
+      ],
+      "typeVersion": 1,
+      "id": "f3493d63-29d9-4498-a21a-abcdfadbcbc7",
+      "name": "Sticky Note1"
+    },
+    {
+      "parameters": {
+        "content": "## Decide & Notify",
+        "height": 416,
+        "width": 1280,
+        "color": 3
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        656,
+        832
+      ],
+      "typeVersion": 1,
+      "id": "da0c14a9-9b60-4922-8018-759cfaac9cf7",
+      "name": "Sticky Note2"
+    },
+    {
+      "parameters": {
+        "content": "## 🔍 THREAT ANALYSIS\n\nSame 5 checks as original:\n1. Emotional manipulation\n2. Hedge words\n3. Call-to-action\n4. Behavioral tactics\n5. Bot signals\n\nAdapted for platform differences where needed.",
+        "height": 324,
+        "width": 360
+      },
+      "id": "54ba3de4-a5c7-4942-99ce-02ddb059eed0",
+      "name": "Sticky Note3",
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        1952,
+        464
+      ],
+      "typeVersion": 1
+    },
+    {
+      "parameters": {
+        "content": "## 🚨 ALERTING SYSTEM\n\nOnly alerts on medium/high/critical threats or detected campaigns.\n\n**Routing:**\n- Critical (70+) → #alerts-critical\n- High (50-69) → #alerts-general  \n- Medium (30-49) → #alerts-general\n- Low (0-29) → No alert",
+        "height": 404,
+        "width": 364
+      },
+      "id": "b2f11949-1cd6-41bd-bd29-06cee219b97f",
+      "name": "Sticky Note4",
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        1952,
+        832
+      ],
+      "typeVersion": 1
+    }
+  ],
+  "connections": {
+    "Format Alert": {
+      "main": [
+        [
+          {
+            "node": "Send Alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Should Alert?": {
+      "main": [
+        [
+          {
+            "node": "Format Alert",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "No Alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Volume Pattern": {
+      "main": [
+        [
+          {
+            "node": "Should Alert?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Calculate Total Threat": {
+      "main": [
+        [
+          {
+            "node": "Check Volume Pattern",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Bot Signals": {
+      "main": [
+        [
+          {
+            "node": "Calculate Total Threat",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Behavioral": {
+      "main": [
+        [
+          {
+            "node": "Check Bot Signals",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Call-to-Action": {
+      "main": [
+        [
+          {
+            "node": "Check Behavioral",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Hedge Words": {
+      "main": [
+        [
+          {
+            "node": "Check Call-to-Action",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Emotional Words": {
+      "main": [
+        [
+          {
+            "node": "Check Hedge Words",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Data": {
+      "main": [
+        [
+          {
+            "node": "Check Emotional Words",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Bluesky Posts": {
+      "main": [
+        [
+          {
+            "node": "Normalize Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Authenticate Bluesky": {
+      "main": [
+        [
+          {
+            "node": "Fetch Bluesky Posts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Platform Config": {
+      "main": [
+        [
+          {
+            "node": "Authenticate Bluesky",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Every 30 Minutes": {
+      "main": [
+        [
+          {
+            "node": "Platform Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "meta": {
+    "instanceId": "5dc6e67c991cf2e3caadd6e211fa62501b73fb5108da2f896f5710ae50bc2723"
+  }
+}
