@@ -1,0 +1,609 @@
+{
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "weeks",
+              "triggerAtDay": [
+                2
+              ],
+              "triggerAtHour": 10,
+              "triggerAtMinute": 15
+            }
+          ]
+        }
+      },
+      "id": "3085301f-7b72-4dd6-9be8-d14c178e31f5",
+      "name": "Weekly Campaign Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        -256,
+        -128
+      ]
+    },
+    {
+      "parameters": {
+        "path": "cd8873a0-a281-4572-904e-2e1582d7c528",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "1acc1c45-2938-4bcd-ba25-e9824d48e1f4",
+      "name": "Anonymous Click Handler",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1.1,
+      "position": [
+        -256,
+        80
+      ],
+      "webhookId": "cd8873a0-a281-4572-904e-2e1582d7c528"
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "1PlI4TnldOYhHc7LkJ8I0tqMAn39ivCEQ8mKqJMoeeYE",
+          "mode": "list",
+          "cachedResultName": "Employees",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1PlI4TnldOYhHc7LkJ8I0tqMAn39ivCEQ8mKqJMoeeYE/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "Sheet1",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1PlI4TnldOYhHc7LkJ8I0tqMAn39ivCEQ8mKqJMoeeYE/edit#gid=0"
+        },
+        "options": {}
+      },
+      "id": "16308b42-8668-42bf-80e1-5e671e922152",
+      "name": "Get Employee List",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [
+        96,
+        -128
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "e0aPuL4PHlm3aS8W",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "functionCode": "// Anonymous campaign setup\n// Select 20% of employees randomly\nconst employees = items;\nconst campaignId = 'CAMP_' + Date.now();\nconst sampleSize = Math.ceil(employees.length * 0.2);\n\n// Shuffle and select\nconst shuffled = employees.sort(() => 0.5 - Math.random());\nconst selected = shuffled.slice(0, sampleSize);\n\n// Create anonymous tracking URLs\nreturn selected.map(item => {\n // Generate unique ID that can't be traced back\n const uniqueId = Math.random().toString(36).substring(2, 15);\n const department = item.json.department || 'general';\n const template = Math.floor(Math.random() * 3) + 1;\n \n// Build anonymous tracking URL\nconst webhookId = '5881355f-1a60-4511-bebf-158468b83780';  // From your webhook node\nconst baseUrl = $env[\"WEBHOOK_URL\"] || `${$env[\"N8N_PROTOCOL\"]}://{$env[\"N8N_HOST\"]}:${$env[\"N8N_PORT\"]}/`;\nconst trackingUrl = `${baseUrl}webhook/${webhookId}/phishing/${uniqueId}/${department}/${template}`;\n \n return {\n json: {\n email: item.json.email,\n name: item.json.name || 'Team Member',\n department: department,\n trackingUrl: trackingUrl,\n template: template,\n campaignId: campaignId,\n timestamp: new Date().toISOString()\n }\n };\n});"
+      },
+      "id": "2f477c71-57dd-40a3-b4c3-2ed8496aa3a5",
+      "name": "Create Anonymous Campaign",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [
+        304,
+        -128
+      ]
+    },
+    {
+      "parameters": {
+        "fromEmail": "CHANGE.ME.TO.YOUR.FROM.EMAIL@email.com",
+        "toEmail": "={{$json[\"email\"]}}",
+        "subject": "={{$json[\"subject\"]}}",
+        "html": "={{$json[\"html\"]}}",
+        "options": {
+          "allowUnauthorizedCerts": false
+        }
+      },
+      "id": "87034200-f0fb-446c-b844-660760f835a3",
+      "name": "Send Phishing Test",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        704,
+        -128
+      ],
+      "executeOnce": false,
+      "webhookId": "d9404618-dc00-4f9b-99be-859ee7999a11",
+      "credentials": {
+        "smtp": {
+          "id": "nmw1xBOhoHlpRxct",
+          "name": "SMTP account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "functionCode": "// Generate phishing templates\nreturn items.map(item => {\n  const json = item.json;\n  const templateNum = json.template;\n  const trackingUrl = json.trackingUrl;\n  const firstName = json.name.split(' ')[0];\n\n  const templates = [\n    {\n      subject: '⚠️ Password Expiry Notice - Action Required',\n      html: `\n        <div style=\"font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;\">\n          <div style=\"background: linear-gradient(90deg, #ff6b6b 0%, #ee5a24 100%); color: white; padding: 20px;\">\n            <h2 style=\"margin: 0;\">⚠️ IT Security Notice</h2>\n          </div>\n          <div style=\"padding: 25px; background: #f8f9fa;\">\n            <p>Hello ${firstName},</p>\n            <p style=\"color: #d63031; font-weight: bold;\">Your password expires in 4 hours!</p>\n            <p>Our records show your password hasn't been updated in 90 days. To prevent account lockout, please update it immediately:</p>\n            <div style=\"text-align: center; margin: 30px 0;\">\n              <a href=\"${trackingUrl}\" style=\"display: inline-block; padding: 14px 28px; background: #0984e3; color: white; text-decoration: none; border-radius: 5px; font-weight: bold;\">Reset Password Now →</a>\n            </div>\n            <p style=\"color: #636e72; font-size: 13px; border-top: 1px solid #dfe6e9; padding-top: 15px; margin-top: 30px;\">\n              This is an automated message from IT Security. Do not reply to this email.<br>\n              Reference ID: SEC-${Math.random().toString(36).substring(2, 9).toUpperCase()}\n            </p>\n          </div>\n        </div>\n      `\n    },\n    {\n      subject: 'Document shared with you: Q4_Budget_Final.xlsx',\n      html: `\n        <div style=\"font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;\">\n          <div style=\"text-align: center; padding: 20px; background: white; border-bottom: 2px solid #f1f3f4;\">\n            <div style=\"font-size: 24px; color: #4285f4;\">☁️ CloudDocs</div>\n          </div>\n          <div style=\"padding: 30px; background: #fafafa;\">\n            <p>Hi ${firstName},</p>\n            <p>Sarah Martinez shared a document with you:</p>\n            <div style=\"background: white; border: 1px solid #e0e0e0; border-radius: 8px; padding: 20px; margin: 20px 0;\">\n              <div style=\"display: flex; align-items: center;\">\n                <span style=\"font-size: 28px; margin-right: 15px;\">📊</span>\n                <div>\n                  <div style=\"font-weight: bold; font-size: 16px;\">Q4_Budget_Final.xlsx</div>\n                  <div style=\"color: #5f6368; font-size: 14px; margin-top: 5px;\">Shared by Sarah Martinez • 1.2 MB</div>\n                </div>\n              </div>\n              <div style=\"background: #fef7e0; border-left: 3px solid #fbbc04; padding: 10px; margin: 15px 0; font-size: 14px;\">\n                \"Please review before tomorrow's meeting - made some important changes to projections\" </div>\n              <a href=\"${trackingUrl}\" style=\"display: inline-block; padding: 10px 24px; background: #1a73e8; color: white; text-decoration: none; border-radius: 4px; font-weight: 500; margin-top: 10px;\">Open Document</a>\n            </div>\n            <p style=\"color: #5f6368; font-size: 12px; margin-top: 25px;\">\n              This notification was sent to ${firstName} because someone shared a CloudDocs file with you.<br>\n              CloudDocs - Simple, Secure, Seamless\n            </p>\n          </div>\n        </div>\n      `\n    },\n    {\n      subject: 'Unusual Activity Detected - Verify Your Account',\n      html: `\n        <div style=\"font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;\">\n          <div style=\"background: #1a1a1a; color: white; padding: 25px; text-align: center;\">\n            <h2 style=\"margin: 0; font-size: 22px;\">🔐 Security Alert</h2>\n          </div>\n          <div style=\"background: #fff3cd; border: 1px solid #ffeeba; padding: 15px; margin: 0;\">\n            <strong>⚠️ Suspicious activity detected on your account</strong>\n          </div>\n          <div style=\"padding: 25px; background: white;\">\n            <p>Dear ${firstName},</p>\n            <p>We've detected unusual sign-in activity on your account:</p>\n            <div style=\"background: #f8f9fa; border-left: 4px solid #dc3545; padding: 15px; margin: 20px 0;\">\n              <strong>New Device Login Attempt</strong><br>\n              Location: Moscow, Russia<br>\n              Device: Windows PC (Chrome)<br>\n              Time: ${new Date().toLocaleString()}<br>\n              IP: 185.220.xxx.xxx\n            </div>\n            <p><strong>If this wasn't you, secure your account immediately:</strong></p>\n            <div style=\"text-align: center; margin: 25px 0;\">\n              <a href=\"${trackingUrl}\" style=\"display: inline-block; padding: 12px 30px; background: #dc3545; color: white; text-decoration: none; border-radius: 4px; font-weight: bold;\">Secure Account Now</a>\n            </div>\n            <div style=\"background: #f8f9fa; padding: 15px; margin-top: 20px; font-size: 13px; color: #6c757d;\">\n              If you recognized this activity, you can safely ignore this email. We take your security seriously and will continue monitoring for suspicious activity.\n            </div>\n          </div>\n        </div>\n      `\n    }\n  ];\n\n  const selectedTemplate = templates[templateNum - 1];\n\n  return {\n    json: {\n      ...json,\n      subject: selectedTemplate.subject,\n      html: selectedTemplate.html\n    }\n  };\n});"
+      },
+      "id": "df980bb2-3ee4-4f17-8079-cc1383ec7044",
+      "name": "Generate Phishing Template",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [
+        512,
+        -128
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "1PlI4TnldOYhHc7LkJ8I0tqMAn39ivCEQ8mKqJMoeeYE",
+          "mode": "list",
+          "cachedResultName": "Employees",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1PlI4TnldOYhHc7LkJ8I0tqMAn39ivCEQ8mKqJMoeeYE/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 18942952,
+          "mode": "list",
+          "cachedResultName": "logs",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1PlI4TnldOYhHc7LkJ8I0tqMAn39ivCEQ8mKqJMoeeYE/edit#gid=18942952"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Timestamp": "={{ $json.timestamp }}",
+            "Department": "={{ $json.department }}",
+            "Template": "={{ $json.template }}",
+            "Status": "={{ $json.status }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "Timestamp",
+              "displayName": "Timestamp",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Department",
+              "displayName": "Department",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Template",
+              "displayName": "Template",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Status",
+              "displayName": "Status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "id": "5ab557ec-3bcd-4e41-a8fa-dc8cfa8a08e4",
+      "name": "Log Anonymous Stats",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [
+        1056,
+        -128
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "e0aPuL4PHlm3aS8W",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "# Instant Phishing Training\n\nYou've clicked on a simulated phishing link!\n\n### Lessons Learned:\n- Always verify the sender's email address.\n- Hover over links to check the URL before clicking.\n- Look for urgent language or unexpected requests.\n\nVisit our security portal for full training materials.\n\n*This event is logged anonymously for aggregate metrics only.*",
+        "options": {
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Content-Type",
+                "value": "text/markdown"
+              }
+            ]
+          }
+        }
+      },
+      "id": "6bbbb07a-ce1b-4bc3-9ce3-8712f90833f9",
+      "name": "Instant Training Page",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [
+        304,
+        80
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "1PlI4TnldOYhHc7LkJ8I0tqMAn39ivCEQ8mKqJMoeeYE",
+          "mode": "list",
+          "cachedResultName": "Employees",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1PlI4TnldOYhHc7LkJ8I0tqMAn39ivCEQ8mKqJMoeeYE/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 18942952,
+          "mode": "list",
+          "cachedResultName": "logs",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1PlI4TnldOYhHc7LkJ8I0tqMAn39ivCEQ8mKqJMoeeYE/edit#gid=18942952"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Timestamp": "={{ $json.timestamp }}",
+            "Department": "={{ $json.department }}",
+            "Template": "={{ $json.template }}",
+            "Status": "={{ $json.status }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "Timestamp",
+              "displayName": "Timestamp",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Department",
+              "displayName": "Department",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Template",
+              "displayName": "Template",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Status",
+              "displayName": "Status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {
+          "cellFormat": "USER_ENTERED"
+        }
+      },
+      "id": "65146cb1-4011-4d28-8417-f8f8c862375e",
+      "name": "Log Anonymous Click",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [
+        96,
+        80
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "e0aPuL4PHlm3aS8W",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {}
+          ]
+        }
+      },
+      "id": "2fd4e998-5322-4498-ac6e-bac38d64d507",
+      "name": "Weekly Report",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        -256,
+        272
+      ]
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "1PlI4TnldOYhHc7LkJ8I0tqMAn39ivCEQ8mKqJMoeeYE",
+          "mode": "list",
+          "cachedResultName": "Employees",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1PlI4TnldOYhHc7LkJ8I0tqMAn39ivCEQ8mKqJMoeeYE/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 18942952,
+          "mode": "list",
+          "cachedResultName": "logs",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1PlI4TnldOYhHc7LkJ8I0tqMAn39ivCEQ8mKqJMoeeYE/edit#gid=18942952"
+        },
+        "options": {}
+      },
+      "id": "db465204-f104-4dcf-a514-dc46ec69eeb4",
+      "name": "Get Weekly Stats",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [
+        96,
+        272
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "e0aPuL4PHlm3aS8W",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "functionCode": "// Calculate anonymous metrics\nconst stats = items;\nconst oneWeekAgo = new Date();\noneWeekAgo.setDate(oneWeekAgo.getDate() - 7);\n\n// Filter this week's data\nconst thisWeek = stats.filter(item => {\n  const date = new Date(item.json.Timestamp);\n  return date > oneWeekAgo;\n});\n\n// Separate sent vs clicked\nconst sent = thisWeek.filter(s => s.json.Status === 'Sent');\nconst clicked = thisWeek.filter(s => s.json.Status === 'Clicked');\n\n// Department analysis\nconst deptStats = {};\nsent.forEach(s => {\n  const dept = s.json.Department;\n  if (!deptStats[dept]) deptStats[dept] = { sent: 0, clicked: 0 };\n  deptStats[dept].sent++;\n});\n\nclicked.forEach(c => {\n  const dept = c.json.Department;\n  if (!deptStats[dept]) deptStats[dept] = { sent: 0, clicked: 0 };\n  deptStats[dept].clicked++;\n});\n\n// Calculate department click rates\nconst deptPerformance = Object.entries(deptStats).map(([dept, stats]) => ({\n  department: dept,\n  sent: stats.sent,\n  clicked: stats.clicked,\n  rate: ((stats.clicked / stats.sent) * 100).toFixed(1) + '%'\n})).sort((a, b) => parseFloat(b.rate) - parseFloat(a.rate));\n\n// Template effectiveness\nconst templateStats = {};\nclicked.forEach(c => {\n  const template = c.json.Template;\n  templateStats[template] = (templateStats[template] || 0) + 1;\n});\n\nconst overallClickRate = sent.length === 0 ? 0 : ((clicked.length / sent.length) * 100).toFixed(1);  // Avoid NaN\n\nreturn [{\n  json: {\n    reportDate: new Date().toISOString(),\n    period: 'Last 7 Days',\n    totalSent: sent.length,\n    totalClicks: clicked.length,\n    clickRate: overallClickRate + '%',\n    departmentStats: deptPerformance,\n    templateEffectiveness: {\n      passwordExpiry: templateStats['1'] || 0,\n      sharedDocument: templateStats['2'] || 0,\n      securityAlert: templateStats['3'] || 0\n    },\n    riskLevel: overallClickRate > 25 ? 'HIGH' : overallClickRate > 10 ? 'MEDIUM' : 'LOW',\n    trend: overallClickRate > 15 ? '📈 Needs Improvement' : '📉 Improving',\n    recommendations: overallClickRate > 25 \n      ? ['Schedule all-hands security training', 'Increase awareness communications', 'Focus on ' + (deptPerformance[0]?.department || 'N/A') + ' department']\n      : overallClickRate > 10\n      ? ['Continue regular training', 'Share success stories', 'Target high-risk departments']\n      : ['Maintain current program', 'Consider advanced scenarios', 'Celebrate improvement']\n  }\n}];"
+      },
+      "id": "5c6b4297-5661-47e3-b1aa-7dbad7cc2507",
+      "name": "Calculate Anonymous Metrics",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [
+        304,
+        272
+      ]
+    },
+    {
+      "parameters": {
+        "functionCode": "// Format report for Slack/Email\nconst metrics = $json;\nconst riskEmoji = metrics.riskLevel === 'HIGH' ? '🔴' : metrics.riskLevel === 'MEDIUM' ? '🟡' : '🟢';\n\n// Create department leaderboard (safe for empty array)\nconst deptLeaderboard = (metrics.departmentStats || [])\n  .slice(0, 5)\n  .map((d, i) => `${i + 1}. ${d.department}: ${d.rate} (${d.clicked}/${d.sent} clicked)`)\n  .join('\\n');\n\n// Template effectiveness\nconst templateReport = `\n🎯 Most Effective Phishing Types:\n• Password Expiry: ${metrics.templateEffectiveness?.passwordExpiry || 0} clicks\n• Shared Document: ${metrics.templateEffectiveness?.sharedDocument || 0} clicks \n• Security Alert: ${metrics.templateEffectiveness?.securityAlert || 0} clicks\n`;\n\nconst slackMessage = `\n${riskEmoji} *Weekly Phishing Defense Report*\n━━━━━━━━━━━━━━━━━━━━━\n\n📊 *Overall Statistics*\n• Phishing Tests Sent: ${metrics.totalSent}\n• Clicks Recorded: ${metrics.totalClicks}\n• Click Rate: *${metrics.clickRate}*\n• Risk Level: *${metrics.riskLevel}*\n• Trend: ${metrics.trend}\n\n🏆 *Department Performance*\n${deptLeaderboard}\n\n${templateReport}\n\n💡 *Recommendations*\n${(metrics.recommendations || []).map(r => '• ' + r).join('\\n')}\n\n_Note: All tracking is anonymous. No individual employee data is collected._\n\n📈 Full dashboard: company.com/security-metrics\n`;\n\nconst emailHTML = `\n<div style=\"font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: 0 auto;\">\n <div style=\"background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 30px; border-radius: 10px 10px 0 0;\">\n <h1>${riskEmoji} Weekly Security Report</h1>\n <p style=\"opacity: 0.9;\">Anonymous Phishing Defense Metrics</p>\n </div>\n \n <div style=\"padding: 30px; background: #f8f9fa;\">\n <div style=\"background: white; padding: 20px; border-radius: 8px; margin-bottom: 20px;\">\n <h3>📊 Key Metrics</h3>\n <div style=\"display: grid; grid-template-columns: 1fr 1fr; gap: 15px;\">\n <div style=\"padding: 10px; background: #f1f3f4; border-radius: 4px;\">\n <div style=\"font-size: 24px; font-weight: bold; color: #1a73e8;\">${metrics.clickRate}</div>\n <div style=\"font-size: 12px; color: #666;\">Click Rate</div>\n </div>\n <div style=\"padding: 10px; background: #f1f3f4; border-radius: 4px;\">\n <div style=\"font-size: 24px; font-weight: bold; color: ${metrics.riskLevel === 'HIGH' ? '#d93025' : metrics.riskLevel === 'MEDIUM' ? '#fbbc04' : '#34a853'};\">${metrics.riskLevel}</div>\n <div style=\"font-size: 12px; color: #666;\">Risk Level</div>\n </div>\n </div>\n </div>\n \n <div style=\"background: white; padding: 20px; border-radius: 8px;\">\n <h3>🏆 Department Leaderboard</h3>\n ${(metrics.departmentStats || []).map((d, i) => `\n <div style=\"padding: 10px; border-bottom: 1px solid #f1f3f4;\">\n <strong>${i + 1}. ${d.department}</strong>: ${d.rate} click rate\n </div>\n `).join('')}\n </div>\n </div>\n \n <div style=\"background: #343a40; color: white; padding: 20px; text-align: center; border-radius: 0 0 10px 10px;\">\n <p style=\"margin: 5px; font-size: 12px;\">All metrics are anonymous. No individual tracking performed.</p>\n </div>\n</div>\n`;\n\n// Return using metrics directly (no 'item' needed for single-item input)\nreturn [{\n  json: {\n    ...metrics,\n    slackMessage: slackMessage,\n    emailHTML: emailHTML\n  }\n}];"
+      },
+      "id": "162206f4-2ff0-4be7-992e-2d484a47e782",
+      "name": "Format Report",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [
+        512,
+        272
+      ]
+    },
+    {
+      "parameters": {
+        "fromEmail": "CHANGE.ME.TO.YOUR.FROM.EMAIL@email.com",
+        "toEmail": "CHANGE.ME.TO.who.should.receive.the.weekly.report@email.com",
+        "subject": "=📊 Weekly Phishing Defense Report - {{$json[\"riskLevel\"]}} Risk",
+        "html": "={{$json[\"emailHTML\"]}}",
+        "options": {}
+      },
+      "id": "2ff2855d-1ef8-4499-ac0e-18fdf190c275",
+      "name": "Email Report",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        704,
+        272
+      ],
+      "webhookId": "a9a176c7-03f9-4bbb-98d6-918e77fffcd8",
+      "credentials": {
+        "smtp": {
+          "id": "nmw1xBOhoHlpRxct",
+          "name": "SMTP account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "functionCode": "return {\n  json: {\n    department: $json.department,\n    template: $json.template,\n    status: 'Sent',\n    timestamp: $json.timestamp\n  }\n};"
+      },
+      "id": "f02157c1-e256-4edd-be43-1375ccbd847e",
+      "name": "Format Sent Log",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [
+        880,
+        -128
+      ]
+    },
+    {
+      "parameters": {
+        "functionCode": "const department = $json.params[\"department\"];\nconst template = $json.params[\"template\"];\n\nreturn [{\n  json: {\n    department,\n    template,\n    status: 'Clicked',\n    timestamp: new Date().toISOString()\n  }\n}];"
+      },
+      "id": "32e29d34-1647-4706-8fa1-1ef220eaef9c",
+      "name": "Format Click Log",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [
+        -80,
+        80
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## Getting started\n**Create credentials** Create credentials for google sheet (read write), google drive (read), and email.\n\n**Change from email** in the \"send phishing test, and \"Email Report\" nodes..\n\n**Update the Instant Training** page as well, that is sent to people who click ont he email.\n\n**Update the Phishing Template** as well. Good ideas is to use your own company's branding, and send it from an email with a similar url as your company's URL, to make it as sophisticated as possible. Some phishing scams also impersonate, that is pretend to send it from another employee.\n\n**Update the Phishing Template** as well. Good ideas is to use your own company's branding, and send it from an email with a similar url as your company's URL, to make it as sophisticated as possible. Some phishing scams also impersonate, that is pretend to send it from another employee.\n\n**Update the webhook link** either in your n8n yaml file or in your .env file, change the WEBHOOK_URL=, and restart the container if using docker.\n",
+        "height": 560,
+        "width": 384
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        -704,
+        -128
+      ],
+      "typeVersion": 1,
+      "id": "d32bfab2-e267-4e9f-a4d4-f11caef0f3f5",
+      "name": "Sticky Note"
+    }
+  ],
+  "connections": {
+    "Weekly Campaign Trigger": {
+      "main": [
+        [
+          {
+            "node": "Get Employee List",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Anonymous Click Handler": {
+      "main": [
+        [
+          {
+            "node": "Format Click Log",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Employee List": {
+      "main": [
+        [
+          {
+            "node": "Create Anonymous Campaign",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Anonymous Campaign": {
+      "main": [
+        [
+          {
+            "node": "Generate Phishing Template",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate Phishing Template": {
+      "main": [
+        [
+          {
+            "node": "Send Phishing Test",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Format Sent Log",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Anonymous Click": {
+      "main": [
+        [
+          {
+            "node": "Instant Training Page",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Weekly Report": {
+      "main": [
+        [
+          {
+            "node": "Get Weekly Stats",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Weekly Stats": {
+      "main": [
+        [
+          {
+            "node": "Calculate Anonymous Metrics",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Calculate Anonymous Metrics": {
+      "main": [
+        [
+          {
+            "node": "Format Report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Report": {
+      "main": [
+        [
+          {
+            "node": "Email Report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Sent Log": {
+      "main": [
+        [
+          {
+            "node": "Log Anonymous Stats",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Click Log": {
+      "main": [
+        [
+          {
+            "node": "Log Anonymous Click",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "5dc6e67c991cf2e3caadd6e211fa62501b73fb5108da2f896f5710ae50bc2723"
+  }
+}
